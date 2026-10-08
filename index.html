@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>パスワード作成</title>
+<style>
+:root{--bg:#f6f7f4;--fg:#1d2420;--mut:#5d6860;--line:#cfd6cc;--card:#fff;--acc:#1f6f4a;--acc-fg:#fff;--warn:#a23b2a}
+@media(prefers-color-scheme:dark){:root{--bg:#141a16;--fg:#e6ebe6;--mut:#9aa69d;--line:#2c3630;--card:#1b231e;--acc:#59b988;--acc-fg:#0e1511;--warn:#e58b78}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 "Hiragino Sans","Yu Gothic UI","Noto Sans JP",sans-serif;padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+main{max-width:30rem;margin:0 auto}
+h1{font-size:1.25rem;margin:.5rem 0 1rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px}
+label{display:block;font-size:.85rem;color:var(--mut);margin:12px 0 4px}
+input[type=text],input[type=number],input[type=password]{width:100%;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:6px;padding:10px}
+input:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.checks{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:4px}
+.checks label{display:flex;align-items:center;gap:6px;margin:0;color:var(--fg);font-size:1rem}
+button{font:inherit;border-radius:6px;border:1px solid var(--line);background:transparent;color:inherit;padding:10px 14px;cursor:pointer}
+button.main{width:100%;margin-top:16px;background:var(--acc);color:var(--acc-fg);border-color:var(--acc);font-weight:700}
+button:disabled{opacity:.6;cursor:wait}
+#out{display:none;margin-top:16px}
+#pw{font:1.15rem/1.5 ui-monospace,Menlo,Consolas,monospace;word-break:break-all;padding:12px;border:1px dashed var(--line);border-radius:6px}
+.small{font-size:.8rem;color:var(--mut);margin-top:8px;word-break:break-all}
+#msg{color:var(--warn);min-height:1.5em;margin-top:8px}
+</style>
+</head>
+<body>
+<main>
+<h1>パスワード作成</h1>
+<div class="card">
+  <label for="site">サイトのフレーズ</label>
+  <input id="site" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <div class="row">
+    <div><label for="len">文字数(1〜32)</label><input id="len" type="number" min="1" max="32" value="16"></div>
+    <div><label for="date">日付(yyyymmdd)</label><input id="date" type="text" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+  </div>
+  <label>使う文字</label>
+  <div class="checks">
+    <label><input id="up" type="checkbox" checked>大文字</label>
+    <label><input id="lo" type="checkbox" checked>小文字</label>
+    <label><input id="di" type="checkbox" checked>数字</label>
+    <label><input id="sy" type="checkbox" checked>記号</label>
+  </div>
+  <label for="master">マスターフレーズ</label>
+  <input id="master" type="password" autocomplete="off">
+  <button id="go" class="main" type="button">パスワードを作成</button>
+  <div id="msg" role="alert"></div>
+</div>
+<div id="out" class="card">
+  <div id="pw"></div>
+  <div class="row" style="margin-top:12px"><button id="copy" type="button">コピー</button><button id="hide" type="button">消す</button></div>
+  <div class="small" id="left"></div>
+  <div class="small" id="code"></div>
+</div>
+</main>
+<script>
+/*CORE*/
+const SETS=['ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz','0123456789','!@#$%^&*'];
+async function pbkdf2(pw,salt,len){
+  const k=await crypto.subtle.importKey('raw',pw,'PBKDF2',false,['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt,iterations:1},k,len*8));
+}
+function salsa(B,o){
+  const x=B.slice(o,o+16),R=(a,b)=>(a<<b)|(a>>>(32-b));
+  for(let i=0;i<8;i+=2){
+    x[4]^=R(x[0]+x[12],7);x[8]^=R(x[4]+x[0],9);x[12]^=R(x[8]+x[4],13);x[0]^=R(x[12]+x[8],18);
+    x[9]^=R(x[5]+x[1],7);x[13]^=R(x[9]+x[5],9);x[1]^=R(x[13]+x[9],13);x[5]^=R(x[1]+x[13],18);
+    x[14]^=R(x[10]+x[6],7);x[2]^=R(x[14]+x[10],9);x[6]^=R(x[2]+x[14],13);x[10]^=R(x[6]+x[2],18);
+    x[3]^=R(x[15]+x[11],7);x[7]^=R(x[3]+x[15],9);x[11]^=R(x[7]+x[3],13);x[15]^=R(x[11]+x[7],18);
+    x[1]^=R(x[0]+x[3],7);x[2]^=R(x[1]+x[0],9);x[3]^=R(x[2]+x[1],13);x[0]^=R(x[3]+x[2],18);
+    x[6]^=R(x[5]+x[4],7);x[7]^=R(x[6]+x[5],9);x[4]^=R(x[7]+x[6],13);x[5]^=R(x[4]+x[7],18);
+    x[11]^=R(x[10]+x[9],7);x[8]^=R(x[11]+x[10],9);x[9]^=R(x[8]+x[11],13);x[10]^=R(x[9]+x[8],18);
+    x[12]^=R(x[15]+x[14],7);x[13]^=R(x[12]+x[15],9);x[14]^=R(x[13]+x[12],13);x[15]^=R(x[14]+x[13],18);
+  }
+  for(let i=0;i<16;i++)B[o+i]+=x[i];
+}
+function blockMix(B,Y,r){
+  const X=B.slice((2*r-1)*16,2*r*16);
+  for(let i=0;i<2*r;i++){
+    for(let k=0;k<16;k++)X[k]^=B[i*16+k];
+    salsa(X,0);
+    Y.set(X,(i&1?r+(i>>1):(i>>1))*16);
+  }
+  B.set(Y);
+}
+async function scrypt(pw,salt,N,r,dkLen){
+  const w=32*r,b=await pbkdf2(pw,salt,128*r),B=new Uint32Array(b.buffer);
+  const V=new Uint32Array(w*N),Y=new Uint32Array(w);
+  for(let i=0;i<N;i++){V.set(B,i*w);blockMix(B,Y,r);}
+  for(let i=0;i<N;i++){
+    const j=B[(2*r-1)*16]&(N-1);
+    for(let k=0;k<w;k++)B[k]^=V[j*w+k];
+    blockMix(B,Y,r);
+  }
+  return pbkdf2(pw,new Uint8Array(B.buffer),dkLen);
+}
+async function makePassword(master,site,length,flags,date){
+  const phrase=site.trim().toLowerCase(),pools=SETS.filter((_,i)=>flags[i]);
+  if(!phrase||!/^\d{8}$/.test(date)||!pools.length||!(pools.length<=length&&length<=32))
+    throw new Error('入力を確認してください(フレーズ・日付8桁・文字種・文字数1〜32)');
+  const code=date[0]+date[4]+date[1]+date[5]+date[2]+date[6]+date[3]+date[7],enc=new TextEncoder();
+  const key=await scrypt(enc.encode(master),enc.encode(phrase+':'+code),65536,8,64);
+  let n=0n;for(const v of key)n=(n<<8n)|BigInt(v);
+  const take=k=>{const i=Number(n%BigInt(k));n/=BigInt(k);return i;};
+  const pool=pools.join(''),out=pools.map(s=>s[take(s.length)]);
+  while(out.length<length)out.push(pool[take(pool.length)]);
+  for(let i=out.length-1;i>0;i--){const j=take(i+1);[out[i],out[j]]=[out[j],out[i]];}
+  return out.join('');
+}
+/*END*/
+
+const $=id=>document.getElementById(id),IDS=['up','lo','di','sy'];
+let timer,tick;
+const today=()=>{const d=new Date();return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');};
+const p=new URLSearchParams(location.hash.slice(1)),c=(p.get('c')||'1111').padEnd(4,'1');
+$('site').value=p.get('s')||'';$('len').value=p.get('l')||16;$('date').value=p.get('d')||today();
+IDS.forEach((id,i)=>$(id).checked=c[i]==='1');
+if($('site').value)$('master').focus();else $('site').focus();
+
+function clearOut(){
+  clearInterval(tick);clearTimeout(timer);
+  $('pw').textContent='';$('out').style.display='none';
+  navigator.clipboard&&navigator.clipboard.writeText('').catch(()=>{});
+}
+$('hide').onclick=clearOut;
+$('copy').onclick=async()=>{try{await navigator.clipboard.writeText($('pw').textContent);$('copy').textContent='コピーしました';setTimeout(()=>$('copy').textContent='コピー',1500);}catch(e){$('msg').textContent='コピーできませんでした。手で選択してください。';}};
+$('go').onclick=async()=>{
+  const flags=IDS.map(id=>$(id).checked),len=parseInt($('len').value,10),date=$('date').value.trim(),site=$('site').value;
+  $('msg').textContent='';clearOut();$('go').disabled=true;$('go').textContent='計算中…';
+  await new Promise(r=>setTimeout(r,30));
+  try{
+    $('pw').textContent=await makePassword($('master').value,site,len,flags,date);
+    $('code').textContent='設定コード: '+site.trim().toLowerCase()+'|'+len+'|'+flags.map(f=>+f).join('')+'|'+date;
+    $('out').style.display='block';
+    let s=30;$('left').textContent=s+'秒後に消えます';
+    tick=setInterval(()=>{s--;$('left').textContent=s+'秒後に消えます';},1000);
+    timer=setTimeout(clearOut,30000);
+  }catch(e){$('msg').textContent=e.message;}
+  $('go').disabled=false;$('go').textContent='パスワードを作成';
+};
+$('master').addEventListener('keydown',e=>{if(e.key==='Enter')$('go').click();});
+</script>
+</body>
+</html>
